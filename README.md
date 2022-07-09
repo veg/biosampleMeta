@@ -4,7 +4,7 @@ Some biosample metadata scraping efforts from the Pond lab for the ArgosDB proje
 
 ## Installation and setup
 
-Recommend [miniconda](https://docs.conda.io/en/latest/miniconda.html) and [mamba](https://github.com/mamba-org/mamba). Choose your environment (currently `m1`), then
+Recommend [miniconda](https://docs.conda.io/en/latest/miniconda.html) and [mamba](https://github.com/mamba-org/mamba). Choose your environment (currently `m1` or `linux`), then
 
 ```
 mamba env create -f environment-$ENVIRONMENT.yml
