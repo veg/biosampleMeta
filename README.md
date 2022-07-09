@@ -1,6 +1,6 @@
-# biosampleQC
+# biosampleMeta
 
-Some biosampleQC efforts from the Pond lab for the ArgosDB project.
+Some biosample metadata scraping efforts from the Pond lab for the ArgosDB project.
 
 ## Installation and setup
 
