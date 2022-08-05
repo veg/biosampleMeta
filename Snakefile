@@ -1,10 +1,12 @@
 import os
 import re
 import csv
+import json
 from time import sleep
 
 from Bio import Entrez
 from bs4 import BeautifulSoup
+import xmltodict
 
 
 Entrez.email = os.environ.get('ENTREZ_EMAIL') or None
@@ -60,6 +62,14 @@ def read_ids(filename):
 def write_ids(ids, filename):
   with open(filename, 'w') as f:
     f.write('\n'.join(ids))
+
+
+def xml2json(xml_filename, json_filename):
+  with open(xml_filename) as xml_file:
+    xml = xml_file.read()
+  converted = xmltodict.parse(xml)
+  with open(json_filename, 'w') as json_file:
+    json.dump(converted, json_file, indent=2)
 
 
 rule bioproject_query:
@@ -198,6 +208,14 @@ rule sra_query:
     soup = efetch('sra', wildcards.sra_accession)
     write_soup(soup, output[0])
 
+rule sra_query_json:
+  input:
+    rules.sra_query.output[0]
+  output:
+    "output/{tax_id}/sra/{sra_accession}/query.json"
+  run:
+    xml2json(input[0], output[0])
+
 rule sra_pluck_biosample:
   input:
     rules.sra_query.output[0]
@@ -220,6 +238,15 @@ rule sra_biosample_fetch:
     soup = efetch('biosample', biosample_id)
     write_soup(soup, output[0])
 
+rule sra_biosample_json:
+  input:
+    rules.sra_biosample_fetch.output[0]
+  output:
+    "output/{tax_id}/sra/{sra_accession}/biosample.json"
+  run:
+    xml2json(input[0], output[0])
+    
+
 def scrape_biosamples_from_sra(output, input):
     csv_file = open(output[0] ,'w')
     csv_writer = csv.writer(csv_file)
@@ -233,17 +260,27 @@ def scrape_biosamples_from_sra(output, input):
     csv_file.close()
 
 
-rule marburg_sra_biosample_table:
+rule all_marburg_sra_biosamples:
   input:
     expand(
-      "output/11269/sra/{sra_accession}/biosample.xml",
+      "output/11269/sra/{sra_accession}/query.json",
+      sra_accession=read_ids('input/sra_accessions/11269.txt')
+    ),
+    expand(
+      "output/11269/sra/{sra_accession}/biosample.json",
       sra_accession=read_ids('input/sra_accessions/11269.txt')
     )
 
-rule all_influenzaA_sra_biosample_ids:
+
+
+rule all_influenzaA_sra_biosamples:
   input:
     expand(
-      "output/11320/sra/{sra_accession}/biosample.xml",
+      "output/11320/sra/{sra_accession}/query.json",
+      sra_accession=read_ids('input/sra_accessions/11320.txt')
+    ),
+    expand(
+      "output/11320/sra/{sra_accession}/biosample.json",
       sra_accession=read_ids('input/sra_accessions/11320.txt')
     )
 
