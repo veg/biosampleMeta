@@ -1,5 +1,6 @@
 import os
 import re
+import csv
 from time import sleep
 
 from Bio import Entrez
@@ -208,20 +209,43 @@ rule sra_pluck_biosample:
     id_ = tag.text.strip()
     write_ids([id_], output[0])
 
-rule all_marburg_sra_biosample_ids:
+rule sra_biosample_fetch:
+  input:
+    rules.sra_pluck_biosample.output[0]
+  output:
+    "output/{tax_id}/sra/{sra_accession}/biosample.xml"
+  run:
+    with open(input[0]) as biosample_id_file:
+      biosample_id = biosample_id_file.read()
+    soup = efetch('biosample', biosample_id)
+    write_soup(soup, output[0])
+
+def scrape_biosamples_from_sra(output, input):
+    csv_file = open(output[0] ,'w')
+    csv_writer = csv.writer(csv_file)
+    csv_writer.writerow(['sra_accession', 'biosample_accession'])
+    for biosample_id_filepath in input:
+      with open(biosample_id_filepath) as biosample_file:
+        biosample_id = biosample_file.read()
+      if len(biosample_id) > 0:
+        sra_accession = biosample_id_filepath.split('/')[3]
+        csv_writer.writerow([sra_accession, biosample_id])
+    csv_file.close()
+
+
+rule marburg_sra_biosample_table:
   input:
     expand(
-      "output/11269/sra/{sra_accession}/biosample_id.txt",
+      "output/11269/sra/{sra_accession}/biosample.xml",
       sra_accession=read_ids('input/sra_accessions/11269.txt')
     )
 
 rule all_influenzaA_sra_biosample_ids:
   input:
     expand(
-      "output/11320/sra/{sra_accession}/biosample_id.txt",
+      "output/11320/sra/{sra_accession}/biosample.xml",
       sra_accession=read_ids('input/sra_accessions/11320.txt')
     )
-    
 
 #def get_bs_ids(wildcards):
 #  filename = "bioprojects/%s/biosample_links.txt" % wildcards.bp_accession
