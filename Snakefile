@@ -13,8 +13,6 @@ Entrez.api_key = os.environ.get('ENTREZ_API_KEY') or None
 wildcard_constraints:
   bp_accession="[^/]+"
 
-with open('input/tax_ids.txt') as f:
-  tax_ids = f.read().splitlines()
 
 def efetch(db, accession):
   handle = Entrez.efetch(db=db, id=accession)
@@ -52,36 +50,48 @@ def write_soup(soup, filename):
       f.write(pretty)
 
 
+def read_ids(filename):
+  with open(filename) as f:
+    ids = f.read().splitlines()
+  return ids
+
+
 def write_ids(ids, filename):
   with open(filename, 'w') as f:
     f.write('\n'.join(ids))
 
 
-rule bioproject_ids_from_tax_id:
+rule bioproject_query:
   output:
-    xml="output/{tax_id}/search.xml",
-    accessions="output/{tax_id}/bioproject_accessions.txt"
+    "output/{tax_id}/bioprojects/search.xml",
   run:
     tax_id = 'txid' + wildcards.tax_id
     soup = esearch('bioproject', tax_id)
-    write_soup(soup, output.xml)
+    write_soup(soup, output[0])
 
+rule bioproject_ids_from_query:
+  input:
+    rules.bioproject_query.output[0]
+  output:
+    "output/{tax_id}/bioprojects/ids.txt"
+  run:
+    soup = read_soup(input[0])
     ids = [
       id_.text.strip()
       for id_ in soup.find('IdList').findAll('Id')
     ]
-    write_ids(ids, output.accessions)
+    write_ids(ids, output[0])
 
 rule all_bioproject_ids:
   input:
     expand(
-      "output/{tax_id}/bioproject_accessions.txt",
-      tax_id=tax_ids
+      "output/{tax_id}/bioprojects/ids.txt",
+      tax_id=read_ids('input/tax_ids.txt')
     )
 
 rule bioproject_xml_fetch:
   output:
-    "output/{tax_id}/{bp_accession}/bioproject.xml"
+    "output/{tax_id}/bioprojects/{bp_accession}/bioproject.xml"
   run:
     soup = efetch('bioproject', wildcards.bp_accession)
     write_soup(soup, output[0])
@@ -90,7 +100,7 @@ rule bioproject_sra_query:
   input:
     rules.bioproject_xml_fetch.output[0]
   output:
-    "output/{tax_id}/{bp_accession}/sra_accessions.xml"
+    "output/{tax_id}/bioprojects/{bp_accession}/sra_accessions.xml"
   run:
     soup = elink('sra', 'bioproject', id_=wildcards.bp_accession)
     write_soup(soup, output[0])
@@ -99,7 +109,7 @@ rule bioproject_sra_ids:
   input:
     rules.bioproject_sra_query.output[0]
   output:
-    "output/{tax_id}/{bp_accession}/sra_accessions.txt"
+    "output/{tax_id}/bioprojects/{bp_accession}/sra_accessions.txt"
   run:
     soup = read_soup(input[0])
     ids = [
@@ -112,7 +122,7 @@ rule bioproject_biosample_query:
   input:
     rules.bioproject_xml_fetch.output[0]
   output:
-    "output/{tax_id}/{bp_accession}/biosample_links.xml"
+    "output/{tax_id}/bioprojects/{bp_accession}/biosample_links.xml"
   run:
     soup = elink('biosample', 'bioproject', wildcards.bp_accession)
     write_soup(soup, output[0])
@@ -121,7 +131,7 @@ rule bioproject_biosample_ids:
   input:
     rules.bioproject_biosample_query.output[0]
   output:
-    "output/{tax_id}/{bp_accession}/biosample_accessions.txt"
+    "output/{tax_id}/bioprojects/{bp_accession}/biosample_accessions.txt"
   run:
     soup = read_soup(input[0])
     samn_ids = [
@@ -132,7 +142,7 @@ rule bioproject_biosample_ids:
  
 rule bioproject_biosample_entry:
   output:
-    "output/{tax_id}/{bp_accession}/biosamples/{bs_accession}/entry.xml"
+    "output/{tax_id}/bioprojects/{bp_accession}/biosamples/{bs_accession}/entry.xml"
   run:
     soup = efetch('biosample', wildcards.bs_accession)
     write_soup(soup, output[0])
@@ -141,7 +151,7 @@ rule bioproject_biosample_geo_accession:
   input:
     rules.bioproject_biosample_entry.output[0]
   output:
-    "output/{tax_id}/{bp_accession}/biosamples/{bs_accession}/geo_accession.txt"
+    "output/{tax_id}/bioprojects/{bp_accession}/biosamples/{bs_accession}/geo_accession.txt"
   run:
     soup = read_soup(input[0])
     geo_accession = soup.find('Id', {'db': "GEO"}).text.strip()
@@ -151,13 +161,67 @@ rule bioproject_biosample_geo_xml:
   input:
     rules.bioproject_biosample_geo_accession.output[0]
   output:
-    "output/{tax_id}/{bp_accession}/biosamples/{bs_accession}/geo.xml"
+    "output/{tax_id}/bioprojects/{bp_accession}/biosamples/{bs_accession}/geo.xml"
   shell:
     """
       sleep 3;
       GEO_ACCESSION=$(cat {input})
       wget "https://www.ncbi.nlm.nih.gov/geo/tools/geometa.cgi?acc=$GEO_ACCESSION&scope=full&mode=miniml" -O {output}
     """
+
+rule assembly_query:
+  output:
+    "output/{tax_id}/assembly/search.xml"
+  run:
+    tax_id = 'txid' + wildcards.tax_id
+    soup = esearch('assembly', tax_id)
+    write_soup(soup, output[0])
+
+rule assembly_ids_from_query:
+  input:
+    rules.assembly_query.output[0]
+  output:
+    "output/{tax_id}/assembly/ids.txt"
+  run:
+    soup = read_soup(input[0])
+    ids = [
+      id_.text.strip()
+      for id_ in soup.find('IdList').findAll('Id')
+    ]
+    write_ids(ids, output[0])
+
+rule sra_query:
+  output:
+    "output/{tax_id}/sra/{sra_accession}/query.xml"
+  run:
+    soup = efetch('sra', wildcards.sra_accession)
+    write_soup(soup, output[0])
+
+rule sra_pluck_biosample:
+  input:
+    rules.sra_query.output[0]
+  output:
+    "output/{tax_id}/sra/{sra_accession}/biosample_id.txt"
+  run:
+    soup = read_soup(input[0])
+    tag = soup.find('EXTERNAL_ID', {'namespace': 'BioSample'})
+    id_ = tag.text.strip()
+    write_ids([id_], output[0])
+
+rule all_marburg_sra_biosample_ids:
+  input:
+    expand(
+      "output/11269/sra/{sra_accession}/biosample_id.txt",
+      sra_accession=read_ids('input/sra_accessions/11269.txt')
+    )
+
+rule all_influenzaA_sra_biosample_ids:
+  input:
+    expand(
+      "output/11320/sra/{sra_accession}/biosample_id.txt",
+      sra_accession=read_ids('input/sra_accessions/11320.txt')
+    )
+    
 
 #def get_bs_ids(wildcards):
 #  filename = "bioprojects/%s/biosample_links.txt" % wildcards.bp_accession
