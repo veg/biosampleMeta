@@ -17,6 +17,12 @@ wildcard_constraints:
   bp_accession="[^/]+"
 
 
+lineage = {
+  11269: 'Marburg marburgvirus|Marburgvirus|Filoviridae|Mononegavirales|Monjiviricetes|Haploviricotina|Negarnaviricota|Orthornavirae|Riboviria|Viruses',
+  11320: 'Influenza A virus|Alphainfluenzavirus|Orthomyxoviridae|Articulavirales|Insthoviricetes|Polyploviricotina|Negarnaviricota|Orthornavirae|Riboviria|Viruses'
+}
+
+
 def efetch(db, accession):
   handle = Entrez.efetch(db=db, id=accession)
   raw_xml = handle.read()
@@ -62,6 +68,17 @@ def read_ids(filename):
 def write_ids(ids, filename):
   with open(filename, 'w') as f:
     f.write('\n'.join(ids))
+
+
+def read_json(filename):
+  with open(filename) as json_file:
+    result = json.load(json_file)
+  return result
+
+
+def write_json(result, filename):
+  with open(filename, 'w') as json_file:
+    json.dump(result, json_file, indent=2)
 
 
 def xml2json(xml_filename, json_filename):
@@ -247,31 +264,97 @@ rule sra_biosample_json:
     xml2json(input[0], output[0])
     
 
-def scrape_biosamples_from_sra(output, input):
-    csv_file = open(output[0] ,'w')
-    csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(['sra_accession', 'biosample_accession'])
-    for biosample_id_filepath in input:
-      with open(biosample_id_filepath) as biosample_file:
-        biosample_id = biosample_file.read()
-      if len(biosample_id) > 0:
-        sra_accession = biosample_id_filepath.split('/')[3]
-        csv_writer.writerow([sra_accession, biosample_id])
-    csv_file.close()
+def fetch_instrument_from_sra(sra_query):
+  platform = sra_query['EXPERIMENT']['PLATFORM']
+  key = list(platform.keys())[0]
+  instrument = key + ' - ' + platform[key]['INSTRUMENT_MODEL']
+  return instrument
 
 
-rule all_marburg_sra_biosamples:
+def convert_sample_attributes_to_dict(sra_biosample):
+  attribute_list = sra_biosample['Attributes']['Attribute']
+  return {
+    attribute['@attribute_name']: attribute['#text']
+    for attribute in attribute_list
+  }
+
+
+def safe_fetch(dictionary, key):
+  return '-' if not key in dictionary else dictionary[key]
+
+
+def scrape_sra_query(sra_query):
+  sra_query = sra_query['EXPERIMENT_PACKAGE_SET']['EXPERIMENT_PACKAGE']
+  return {
+    'sra_run_id': sra_query['RUN_SET']['RUN']['@accession'],
+    'instrument': fetch_instrument_from_sra(sra_query),
+    'bioproject': sra_query['STUDY']['@alias'],
+    'sample_name': sra_query['RUN_SET']['RUN']['Pool']['Member']['@sample_name'],
+    'collected_by': sra_query['SUBMISSION']['@center_name']
+  }
+
+
+def scrape_sra_biosample(sra_biosample):
+  sra_biosample = sra_biosample['BioSampleSet']['BioSample']
+  sample_dict = convert_sample_attributes_to_dict(sra_biosample)
+  return {
+    'organism_name': sra_biosample['Description']['Organism']['OrganismName'],
+    'biosample': sra_biosample['@accession'],
+    'strain': safe_fetch(sample_dict, 'strain'),
+    'isolate': safe_fetch(sample_dict, 'isolate'),
+    'isolation_source': safe_fetch(sample_dict, 'isolation_source'),
+    'collection_date': safe_fetch(sample_dict, 'collection_date'),
+    'geo_loc_name': safe_fetch(sample_dict, 'geo_loc_name'),
+    'isolation_source': safe_fetch(sample_dict, 'isolation_source'),
+    'host': safe_fetch(sample_dict, 'lab_host'),
+    'host_disease': safe_fetch(sample_dict, 'host_disease'),
+    'host_disease_outcome': safe_fetch(sample_dict, 'host_disease_outcome'),
+    'host_disease_stage': safe_fetch(sample_dict, 'host_disease_stage'),
+    'host_health_state': safe_fetch(sample_dict, 'host_health_state'),
+    'host_sex': safe_fetch(sample_dict, 'host_sex'),
+    'id_method': safe_fetch(sample_dict, 'identification_method')
+  }
+
+
+rule biosample_meta_row:
   input:
-    expand(
-      "output/11269/sra/{sra_accession}/query.json",
-      sra_accession=read_ids('input/sra_accessions/11269.txt')
-    ),
-    expand(
-      "output/11269/sra/{sra_accession}/biosample.json",
+    sra=rules.sra_query_json.output[0],
+    biosample=rules.sra_biosample_json.output[0]
+  output:
+    "output/{tax_id}/sra/{sra_accession}/row.json"
+  run:
+    sra = read_json(input.sra)
+    biosample = read_json(input.biosample)
+    scraped = scrape_sra_query(sra)
+    scraped.update(scrape_sra_biosample(biosample))
+    scraped.update({
+      'taxonomy_id': wildcards.tax_id,
+      'schema_version': 'v0.8',
+      'lineage': lineage[int(wildcards.tax_id)],
+      'genome_assembly_id': '-'
+    })
+    write_json(scraped, output[0])
+
+rule marburg_sra_biosample_table:
+  input:
+    header="input/v0.8_biosampleMeta_header.tsv",
+    rows=expand(
+      "output/11269/sra/{sra_accession}/row.json",
       sra_accession=read_ids('input/sra_accessions/11269.txt')
     )
-
-
+  output:
+    "output/11269/biosampleMeta_PL.tsv"
+  run:
+    with open(input.header) as f:
+      fieldnames = f.read().strip().split('\t')
+    tsv_file = open(output[0], 'w')
+    writer = csv.DictWriter(tsv_file, fieldnames=fieldnames, delimiter='\t')
+    writer.writeheader()
+    for row_filepath in input.rows:
+      with open(row_filepath) as json_file:
+        row_data = json.load(json_file)
+      writer.writerow(row_data)
+    tsv_file.close()
 
 rule all_influenzaA_sra_biosamples:
   input:
