@@ -279,9 +279,14 @@ def convert_sample_attributes_to_dict(sra_biosample):
   }
 
 
-def safe_fetch(dictionary, key):
-  return '-' if not key in dictionary else dictionary[key]
-
+def safe_fetch(dictionary, keys):
+  if type(keys) == str:
+    return '-' if not keys in dictionary else dictionary[keys]
+  else:
+    for key in keys:
+      if key in dictionary:
+        return dictionary[key]
+    return '-'
 
 def scrape_sra_query(sra_query):
   sra_query = sra_query['EXPERIMENT_PACKAGE_SET']['EXPERIMENT_PACKAGE']
@@ -306,8 +311,12 @@ def scrape_sra_biosample(sra_biosample):
     'collection_date': safe_fetch(sample_dict, 'collection_date'),
     'geo_loc_name': safe_fetch(sample_dict, 'geo_loc_name'),
     'isolation_source': safe_fetch(sample_dict, 'isolation_source'),
-    'host': safe_fetch(sample_dict, 'lab_host'),
-    'host_disease': safe_fetch(sample_dict, 'host_disease'),
+    'lat_lon': safe_fetch(sample_dict, 'lat_lon'),
+    'culture_collection': safe_fetch(sample_dict, 'culture_collection'),
+    'host': safe_fetch(sample_dict, ['lab_host', 'host']),
+    'host_age': safe_fetch(sample_dict, 'host_age'),
+    'host_description': safe_fetch(sample_dict, 'host_description'),
+    'host_disease': safe_fetch(sample_dict, ['host_disease', 'disease']),
     'host_disease_outcome': safe_fetch(sample_dict, 'host_disease_outcome'),
     'host_disease_stage': safe_fetch(sample_dict, 'host_disease_stage'),
     'host_health_state': safe_fetch(sample_dict, 'host_health_state'),
@@ -335,6 +344,20 @@ rule biosample_meta_row:
     })
     write_json(scraped, output[0])
 
+
+def build_table(header, rows, out):
+    with open(header) as f:
+      fieldnames = f.read().strip().split('\t')
+    tsv_file = open(out, 'w')
+    writer = csv.DictWriter(tsv_file, fieldnames=fieldnames, delimiter='\t')
+    writer.writeheader()
+    for row_filepath in rows:
+      with open(row_filepath) as json_file:
+        row_data = json.load(json_file)
+      writer.writerow(row_data)
+    tsv_file.close()
+
+
 rule marburg_sra_biosample_table:
   input:
     header="input/v0.8_biosampleMeta_header.tsv",
@@ -343,29 +366,21 @@ rule marburg_sra_biosample_table:
       sra_accession=read_ids('input/sra_accessions/11269.txt')
     )
   output:
-    "output/11269/biosampleMeta_PL.tsv"
+    "output/11269/sra/biosampleMeta_PL.tsv"
   run:
-    with open(input.header) as f:
-      fieldnames = f.read().strip().split('\t')
-    tsv_file = open(output[0], 'w')
-    writer = csv.DictWriter(tsv_file, fieldnames=fieldnames, delimiter='\t')
-    writer.writeheader()
-    for row_filepath in input.rows:
-      with open(row_filepath) as json_file:
-        row_data = json.load(json_file)
-      writer.writerow(row_data)
-    tsv_file.close()
+    build_table(input.header, input.rows, output[0])
 
-rule all_influenzaA_sra_biosamples:
+rule influenzaA_sra_biosample_table:
   input:
-    expand(
-      "output/11320/sra/{sra_accession}/query.json",
-      sra_accession=read_ids('input/sra_accessions/11320.txt')
-    ),
-    expand(
-      "output/11320/sra/{sra_accession}/biosample.json",
+    header="input/v0.8_biosampleMeta_header.tsv",
+    rows=expand(
+      "output/11320/sra/{sra_accession}/row.json",
       sra_accession=read_ids('input/sra_accessions/11320.txt')
     )
+  output:
+    "output/11320/sra/biosampleMeta_PL.tsv"
+  run:
+    build_table(input.header, input.rows, output[0])
 
 #def get_bs_ids(wildcards):
 #  filename = "bioprojects/%s/biosample_links.txt" % wildcards.bp_accession
