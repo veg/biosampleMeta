@@ -14,7 +14,8 @@ Entrez.api_key = os.environ.get('ENTREZ_API_KEY') or None
 
 
 wildcard_constraints:
-  bp_accession="[^/]+"
+  bp_accession="[^/]+",
+  tax_id="[^/]+"
 
 
 lineage = {
@@ -46,6 +47,14 @@ def esearch(db, term, retmax=1000):
   soup = BeautifulSoup(raw_xml, 'xml')
   return soup
 
+
+def esummary(db, accession):
+  handle = Entrez.esummary(db=db, id=accession, report="full")
+  raw_xml = handle.read()
+  handle.close()
+  soup = BeautifulSoup(raw_xml, 'xml')
+  return soup
+  
 
 def read_soup(filename):
     with open(filename) as f:
@@ -84,6 +93,9 @@ def write_json(result, filename):
 def xml2json(xml_filename, json_filename):
   with open(xml_filename) as xml_file:
     xml = xml_file.read()
+  if not xml:
+    write_ids(['[]'], json_filename)
+    return
   converted = xmltodict.parse(xml)
   with open(json_filename, 'w') as json_file:
     json.dump(converted, json_file, indent=2)
@@ -197,26 +209,184 @@ rule bioproject_biosample_geo_xml:
       wget "https://www.ncbi.nlm.nih.gov/geo/tools/geometa.cgi?acc=$GEO_ACCESSION&scope=full&mode=miniml" -O {output}
     """
 
-rule assembly_query:
+
+def get_key_from_attribute(attribute):
+  if '@harmonized_name' in attribute:
+    return attribute['@harmonized_name']
+  return attribute['@attribute_name']
+
+
+def convert_sample_attributes_to_dict(sra_biosample):
+  if sra_biosample['Attributes'] is None:
+    return {}
+  attribute_list = sra_biosample['Attributes']['Attribute']
+  if type(attribute_list) == dict:
+    attribute_list = [attribute_list]
+  return {
+    get_key_from_attribute(attribute): attribute['#text']
+    for attribute in attribute_list
+  }
+
+
+def scrape_biosample(sra_biosample):
+  if sra_biosample == []:
+    organism_name = '-'
+    biosample = '-'
+    sample_dict = {}
+  else:
+    if sra_biosample['BioSampleSet'] is None:
+      organism_name = '-'
+      biosample = '-'
+      sample_dict = {}
+    else:
+      base = sra_biosample['BioSampleSet']['BioSample']
+      sample_dict = convert_sample_attributes_to_dict(base)
+      organism_name = safe_fetch(
+        base['Description']['Organism'],
+        ['OrganismName', '@taxonomy_name']
+      )
+      biosample = base['@accession']
+
+  return {
+    'organism_name': organism_name,
+    'biosample': biosample,
+    'strain': safe_fetch(sample_dict, 'strain'),
+    'isolate': safe_fetch(sample_dict, 'isolate'),
+    'isolation_source': safe_fetch(sample_dict, 'isolation_source'),
+    'collection_date': safe_fetch(sample_dict, ['collection_date', 'collection date']),
+    'geo_loc_name': safe_fetch(sample_dict, ['geo_loc_name', 'geographic location (country and/or sea)']),
+    'isolation_source': safe_fetch(sample_dict, 'isolation_source'),
+    'lat_lon': safe_fetch(sample_dict, 'lat_lon'),
+    'culture_collection': safe_fetch(sample_dict, 'culture_collection'),
+    'host': safe_fetch(sample_dict, ['lab_host', 'host']),
+    'host_age': safe_fetch(sample_dict, 'host_age'),
+    'host_description': safe_fetch(sample_dict, 'host_description'),
+    'host_disease': safe_fetch(sample_dict, ['host_disease', 'disease']),
+    'host_disease_outcome': safe_fetch(sample_dict, 'host_disease_outcome'),
+    'host_disease_stage': safe_fetch(sample_dict, 'host_disease_stage'),
+    'host_health_state': safe_fetch(sample_dict, 'host_health_state'),
+    'host_sex': safe_fetch(sample_dict, 'host_sex'),
+    'id_method': safe_fetch(sample_dict, 'identification_method'),
+    'sample_name': safe_fetch(sample_dict, 'sample_name')
+  }
+
+
+def scrape_assembly(assembly):
+  base = assembly['eSummaryResult']['DocumentSummarySet']['DocumentSummary']
+  gb_key = 'GB_BioProjects'
+  rs_key = 'RS_BioProjects'
+  has_gbbp_key = gb_key in base and base[gb_key] != None
+  has_rsbp_key = rs_key in base and base[rs_key] != None
+  if has_gbbp_key or has_rsbp_key:
+    key = gb_key if has_gbbp_key else rs_key
+    bioproject = base[key]['Bioproj']['BioprojectAccn']
+  else:
+    bioproject = '-'
+  has_organism = 'Organism' in base
+  organism = '-' if not has_organism else base['Organism']
+  return {
+    'bioproject': bioproject,
+    'organism_name': safe_fetch(base, 'Organism'),
+    'genome_assembly_id': safe_fetch(base, 'AssemblyAccession'),
+    'instrument': '-',
+    'collected_by': '-'
+  }
+
+
+rule assembly_taxon_query:
   output:
     "output/{tax_id}/assembly/search.xml"
   run:
-    tax_id = 'txid' + wildcards.tax_id
+    tax_id = 'txid' + wildcards.tax_id + '[ORGN]'
     soup = esearch('assembly', tax_id)
     write_soup(soup, output[0])
 
-rule assembly_ids_from_query:
+rule assembly_to_json:
+  input:
+    rules.assembly_taxon_query.output[0]
+  output:
+    "output/{tax_id}/assembly/search.json"
+  run:
+    xml2json(input[0], output[0])
+
+rule assembly_accessions:
+  input:
+    rules.assembly_to_json.output[0]
+  output:
+    "output/{tax_id}/assembly/accessions.txt"
+  run:
+    query = read_json(input[0])
+    id_list = query['eSearchResult']['IdList']['Id']
+    write_ids(id_list, output[0])
+
+rule assembly_query:
+  output:
+    "output/{tax_id}/assembly/{assembly_id}/query.xml"
+  run:
+    soup = esummary('assembly', wildcards.assembly_id)
+    write_soup(soup, output[0])
+
+rule assembly_query_json:
   input:
     rules.assembly_query.output[0]
   output:
-    "output/{tax_id}/assembly/ids.txt"
+    "output/{tax_id}/assembly/{assembly_id}/query.json"
   run:
-    soup = read_soup(input[0])
-    ids = [
-      id_.text.strip()
-      for id_ in soup.find('IdList').findAll('Id')
-    ]
-    write_ids(ids, output[0])
+    xml2json(input[0], output[0])
+
+rule assembly_pluck_biosample_id:
+  input:
+    rules.assembly_query_json.output[0]
+  output:
+    "output/{tax_id}/assembly/{assembly_id}/biosample_id.txt"
+  run:
+    query = read_json(input[0])
+    base = query['eSummaryResult']['DocumentSummarySet']['DocumentSummary']
+    biosample_id = '' if not 'BioSampleId' in base else base['BioSampleId']
+    if biosample_id is None:
+      biosample_id = ''
+    write_ids([biosample_id], output[0])
+
+rule assembly_biosample_fetch:
+  input:
+    rules.assembly_pluck_biosample_id.output[0]
+  output:
+    "output/{tax_id}/assembly/{assembly_id}/biosample.xml"
+  run:
+    with open(input[0]) as biosample_id_file:
+      biosample_id = biosample_id_file.read()
+    if biosample_id:
+      soup = efetch('biosample', biosample_id)
+      write_soup(soup, output[0])
+    else:
+      write_ids([biosample_id], output[0])
+
+rule assembly_biosample_json:
+  input:
+    rules.assembly_biosample_fetch.output[0]
+  output:
+    "output/{tax_id}/assembly/{assembly_id}/biosample.json"
+  run:
+    xml2json(input[0], output[0])
+
+rule assembly_row:
+  input:
+    assembly=rules.assembly_query_json.output[0],
+    biosample=rules.assembly_biosample_json.output[0]
+  output:
+    "output/{tax_id}/assembly/{assembly_id}/row.json"
+  run:
+    assembly = read_json(input.assembly)
+    biosample = read_json(input.biosample)
+    scraped = scrape_biosample(biosample)
+    scraped.update(scrape_assembly(assembly))
+    scraped.update({
+      'taxonomy_id': wildcards.tax_id,
+      'schema_version': 'v0.8',
+      'lineage': lineage[int(wildcards.tax_id)],
+      'sra_run_id': '-',
+    })
+    write_json(scraped, output[0])
 
 rule sra_query:
   output:
@@ -271,14 +441,6 @@ def fetch_instrument_from_sra(sra_query):
   return instrument
 
 
-def convert_sample_attributes_to_dict(sra_biosample):
-  attribute_list = sra_biosample['Attributes']['Attribute']
-  return {
-    attribute['@attribute_name']: attribute['#text']
-    for attribute in attribute_list
-  }
-
-
 def safe_fetch(dictionary, keys):
   if type(keys) == str:
     return '-' if not keys in dictionary else dictionary[keys]
@@ -288,42 +450,27 @@ def safe_fetch(dictionary, keys):
         return dictionary[key]
     return '-'
 
-def scrape_sra_query(sra_query):
+
+def deep_safe_fetch(dictionary, keys):
+  for key in keys:
+    if key in dictionary:
+      dictionary = dictionary[key]
+      if type(dictionary) != dict:
+        return dictionary
+    else:
+      return '-'
+
+def scrape_sra_query(sra_query, sra_accession):
   sra_query = sra_query['EXPERIMENT_PACKAGE_SET']['EXPERIMENT_PACKAGE']
+  run_ = sra_query['RUN_SET']['RUN']
+  if type(run_) == list:
+    run_ = [r for r in run_ if r['@accession'] == sra_accession][0]
   return {
-    'sra_run_id': sra_query['RUN_SET']['RUN']['@accession'],
     'instrument': fetch_instrument_from_sra(sra_query),
     'bioproject': sra_query['STUDY']['@alias'],
-    'sample_name': sra_query['RUN_SET']['RUN']['Pool']['Member']['@sample_name'],
+    'sample_name':  deep_safe_fetch(run_, ['Pool', 'Member' ,'@sample_name']),
     'collected_by': sra_query['SUBMISSION']['@center_name']
   }
-
-
-def scrape_sra_biosample(sra_biosample):
-  sra_biosample = sra_biosample['BioSampleSet']['BioSample']
-  sample_dict = convert_sample_attributes_to_dict(sra_biosample)
-  return {
-    'organism_name': sra_biosample['Description']['Organism']['OrganismName'],
-    'biosample': sra_biosample['@accession'],
-    'strain': safe_fetch(sample_dict, 'strain'),
-    'isolate': safe_fetch(sample_dict, 'isolate'),
-    'isolation_source': safe_fetch(sample_dict, 'isolation_source'),
-    'collection_date': safe_fetch(sample_dict, 'collection_date'),
-    'geo_loc_name': safe_fetch(sample_dict, 'geo_loc_name'),
-    'isolation_source': safe_fetch(sample_dict, 'isolation_source'),
-    'lat_lon': safe_fetch(sample_dict, 'lat_lon'),
-    'culture_collection': safe_fetch(sample_dict, 'culture_collection'),
-    'host': safe_fetch(sample_dict, ['lab_host', 'host']),
-    'host_age': safe_fetch(sample_dict, 'host_age'),
-    'host_description': safe_fetch(sample_dict, 'host_description'),
-    'host_disease': safe_fetch(sample_dict, ['host_disease', 'disease']),
-    'host_disease_outcome': safe_fetch(sample_dict, 'host_disease_outcome'),
-    'host_disease_stage': safe_fetch(sample_dict, 'host_disease_stage'),
-    'host_health_state': safe_fetch(sample_dict, 'host_health_state'),
-    'host_sex': safe_fetch(sample_dict, 'host_sex'),
-    'id_method': safe_fetch(sample_dict, 'identification_method')
-  }
-
 
 rule biosample_meta_row:
   input:
@@ -332,11 +479,12 @@ rule biosample_meta_row:
   output:
     "output/{tax_id}/sra/{sra_accession}/row.json"
   run:
-    sra = read_json(input.sra)
+    sra_query = read_json(input.sra)
     biosample = read_json(input.biosample)
-    scraped = scrape_sra_query(sra)
-    scraped.update(scrape_sra_biosample(biosample))
+    scraped = scrape_sra_query(sra_query, wildcards.sra_accession)
+    scraped.update(scrape_biosample(biosample))
     scraped.update({
+      'sra_run_id': wildcards.sra_accession,
       'taxonomy_id': wildcards.tax_id,
       'schema_version': 'v0.8',
       'lineage': lineage[int(wildcards.tax_id)],
@@ -358,7 +506,7 @@ def build_table(header, rows, out):
     tsv_file.close()
 
 
-rule marburg_sra_biosample_table:
+rule marburg_sra_table:
   input:
     header="input/v0.8_biosampleMeta_header.tsv",
     rows=expand(
@@ -370,7 +518,19 @@ rule marburg_sra_biosample_table:
   run:
     build_table(input.header, input.rows, output[0])
 
-rule influenzaA_sra_biosample_table:
+rule marburg_assembly_table:
+  input:
+    header="input/v0.8_biosampleMeta_header.tsv",
+    rows=expand(
+      "output/11269/assembly/{assembly_accession}/row.json",
+      assembly_accession=read_ids('output/11269/assembly/accessions.txt')
+    )
+  output:
+    "output/11269/assembly/biosampleMeta_PL.tsv"
+  run:
+    build_table(input.header, input.rows, output[0])
+
+rule influenzaA_sra_table:
   input:
     header="input/v0.8_biosampleMeta_header.tsv",
     rows=expand(
@@ -381,6 +541,36 @@ rule influenzaA_sra_biosample_table:
     "output/11320/sra/biosampleMeta_PL.tsv"
   run:
     build_table(input.header, input.rows, output[0])
+
+rule influenzaA_assembly_table:
+  input:
+    header="input/v0.8_biosampleMeta_header.tsv",
+    rows=expand(
+      "output/11320/assembly/{assembly_accession}/row.json",
+      assembly_accession=read_ids('output/11320/assembly/accessions.txt')
+    )
+  output:
+    "output/11320/assembly/biosampleMeta_PL.tsv"
+  run:
+    build_table(input.header, input.rows, output[0])
+
+rule master_table:
+  input:
+    header="input/v0.8_biosampleMeta_header.tsv",
+    marburg_assembly=rules.marburg_assembly_table.output[0],
+    influenzaA_assembly=rules.influenzaA_assembly_table.output[0],
+    marburg_sra=rules.marburg_sra_table.output[0],
+    influenzaA_sra=rules.influenzaA_sra_table.output[0]
+  output:
+    "output/biosampleMeta_PL.tsv"
+  shell:
+    """
+      cp {input.header} {output}
+      tail -n +2 {input.marburg_assembly} >> {output}
+      tail -n +2 {input.influenzaA_assembly} >> {output}
+      tail -n +2 {input.marburg_sra} >> {output}
+      tail -n +2 {input.influenzaA_sra} >> {output}
+    """
 
 #def get_bs_ids(wildcards):
 #  filename = "bioprojects/%s/biosample_links.txt" % wildcards.bp_accession
