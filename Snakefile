@@ -40,7 +40,7 @@ def elink(db, dbfrom, id_, retmax=1000):
   return soup
 
 
-def esearch(db, term, retmax=1000):
+def esearch(db, term, retmax=1000000):
   handle = Entrez.esearch(db=db, term=term, retmax=retmax)
   raw_xml = handle.read()
   handle.close()
@@ -293,27 +293,74 @@ def scrape_assembly(assembly):
   }
 
 
-rule assembly_taxon_query:
+rule db_search:
   output:
-    "output/{tax_id}/assembly/search.xml"
+    "db/{database}/{id_}/search.xml"
   run:
-    tax_id = 'txid' + wildcards.tax_id + '[ORGN]'
-    soup = esearch('assembly', tax_id)
+    soup = esearch(wildcards.database, wildcards.id_)
     write_soup(soup, output[0])
 
-rule assembly_to_json:
+rule db_search_json:
   input:
-    rules.assembly_taxon_query.output[0]
+    rules.db_search.output[0]
   output:
-    "output/{tax_id}/assembly/search.json"
+    "db/{database}/{id_}/search.json"
+  run:
+    xml2json(input[0], output[0]) 
+
+rule taxon_search:
+  output:
+    "output/{tax_id}/{database}/search.xml"
+  run:
+    tax_id = 'txid' + wildcards.tax_id + '[ORGN]'
+    soup = esearch(wildcards.database, tax_id)
+    write_soup(soup, output[0])
+
+rule taxon_search_json:
+  input:
+    rules.taxon_search.output[0]
+  output:
+    "output/{tax_id}/{database}/search.json"
   run:
     xml2json(input[0], output[0])
 
-rule assembly_accessions:
-  input:
-    rules.assembly_to_json.output[0]
+rule taxon_summary:
   output:
-    "output/{tax_id}/assembly/accessions.txt"
+    "output/{tax_id}/{database}/summary.xml"
+  run:
+    tax_id = wildcards.tax_id
+    soup = esummary(wildcards.database, tax_id)
+    write_soup(soup, output[0])
+
+rule taxon_summary_json:
+  input:
+    rules.taxon_summary.output[0]
+  output:
+    "output/{tax_id}/{database}/summary.json"
+  run:
+    xml2json(input[0], output[0])
+
+rule taxon_fetch:
+  output:
+    "output/{tax_id}/{database}/fetch.xml"
+  run:
+    tax_id = wildcards.tax_id
+    soup = efetch(wildcards.database, tax_id)
+    write_soup(soup, output[0])
+
+rule taxon_fetch_json:
+  input:
+    rules.taxon_fetch.output[0]
+  output:
+    "output/{tax_id}/{database}/fetch.json"
+  run:
+    xml2json(input[0], output[0])
+
+checkpoint accessions:
+  input:
+    rules.taxon_search_json.output[0]
+  output:
+    "output/{tax_id}/{database}/accessions.txt"
   run:
     query = read_json(input[0])
     id_list = query['eSearchResult']['IdList']['Id']
@@ -506,103 +553,76 @@ def build_table(header, rows, out):
     tsv_file.close()
 
 
-rule marburg_sra_table:
+def table_input(wildcards):
+  parameters = (wildcards.tax_id, wildcards.database)
+  input_accessions = checkpoints.accessions.get(**wildcards).output[0]
+  files = expand(
+    "output/%s/%s/{accession}/row.json" % parameters,
+    accession=read_ids(input_accessions)
+  )
+  return files
+
+
+rule sub_table:
   input:
     header="input/v0.8_biosampleMeta_header.tsv",
-    rows=expand(
-      "output/11269/sra/{sra_accession}/row.json",
-      sra_accession=read_ids('input/sra_accessions/11269.txt')
-    )
+    accessions="output/{tax_id}/{database}/accessions.txt",
+    rows=table_input
   output:
-    "output/11269/sra/biosampleMeta_PL.tsv"
+    "output/{tax_id}/{database}/biosampleMeta_PL.tsv"
   run:
     build_table(input.header, input.rows, output[0])
 
-rule marburg_assembly_table:
-  input:
-    header="input/v0.8_biosampleMeta_header.tsv",
-    rows=expand(
-      "output/11269/assembly/{assembly_accession}/row.json",
-      assembly_accession=read_ids('output/11269/assembly/accessions.txt')
-    )
-  output:
-    "output/11269/assembly/biosampleMeta_PL.tsv"
-  run:
-    build_table(input.header, input.rows, output[0])
-
-rule influenzaA_sra_table:
-  input:
-    header="input/v0.8_biosampleMeta_header.tsv",
-    rows=expand(
-      "output/11320/sra/{sra_accession}/row.json",
-      sra_accession=read_ids('input/sra_accessions/11320.txt')
-    )
-  output:
-    "output/11320/sra/biosampleMeta_PL.tsv"
-  run:
-    build_table(input.header, input.rows, output[0])
-
-rule influenzaA_assembly_table:
-  input:
-    header="input/v0.8_biosampleMeta_header.tsv",
-    rows=expand(
-      "output/11320/assembly/{assembly_accession}/row.json",
-      assembly_accession=read_ids('output/11320/assembly/accessions.txt')
-    )
-  output:
-    "output/11320/assembly/biosampleMeta_PL.tsv"
-  run:
-    build_table(input.header, input.rows, output[0])
-
-rule master_table:
-  input:
-    header="input/v0.8_biosampleMeta_header.tsv",
-    marburg_assembly=rules.marburg_assembly_table.output[0],
-    influenzaA_assembly=rules.influenzaA_assembly_table.output[0],
-    marburg_sra=rules.marburg_sra_table.output[0],
-    influenzaA_sra=rules.influenzaA_sra_table.output[0]
-  output:
-    "output/biosampleMeta_PL.tsv"
-  shell:
-    """
-      cp {input.header} {output}
-      tail -n +2 {input.marburg_assembly} >> {output}
-      tail -n +2 {input.influenzaA_assembly} >> {output}
-      tail -n +2 {input.marburg_sra} >> {output}
-      tail -n +2 {input.influenzaA_sra} >> {output}
-    """
-
-#def get_bs_ids(wildcards):
-#  filename = "bioprojects/%s/biosample_links.txt" % wildcards.bp_accession
-#  with open(filename) as f:
-#    bs_ids = [line.strip() for line in f.readlines()]
-#  bs_files = [
-#    "bioprojects/%s/biosamples/%s/entry.xml" % (wildcards.bp_accession, bs_id)
-#    for bs_id in bs_ids
-#  ]
-#  return bs_files 
-#
-#
-#rule all_bioproject_biosample_entry:
+#rule marburg_assembly_table:
 #  input:
-#    "bioprojects/{bp_accession}/biosample_links.txt",
-#    get_bs_ids
+#    header="input/v0.8_biosampleMeta_header.tsv",
+#    rows=expand(
+#      "output/11269/assembly/{assembly_accession}/row.json",
+#      assembly_accession=read_ids('output/11269/assembly/accessions.txt')
+#    )
 #  output:
-#    'bioprojects/{bp_accession}/biosamples/all.txt'
+#    "output/11269/assembly/biosampleMeta_PL.tsv"
 #  run:
-#    with open(output[0], 'w') as f:
-#      f.write('success')
+#    build_table(input.header, input.rows, output[0])
 #
-#rule all_biosample_links:
+#rule influenzaA_sra_table:
 #  input:
-#    expand(
-#      'bioprojects/{bp_accession}/biosample_links.txt',
-#      bp_accession=bp_accessions
+#    header="input/v0.8_biosampleMeta_header.tsv",
+#    rows=expand(
+#      "output/11320/sra/{sra_accession}/row.json",
+#      sra_accession=read_ids('input/sra_accessions/11320.txt')
 #    )
+#  output:
+#    "output/11320/sra/biosampleMeta_PL.tsv"
+#  run:
+#    build_table(input.header, input.rows, output[0])
 #
-#rule all_biosamples:
+#rule influenzaA_assembly_table:
 #  input:
-#    expand(
-#      'bioprojects/{bp_accession}/biosamples/all.txt',
-#      bp_accession=ran_bp_accessions
+#    header="input/v0.8_biosampleMeta_header.tsv",
+#    rows=expand(
+#      "output/11320/assembly/{assembly_accession}/row.json",
+#      assembly_accession=read_ids('output/11320/assembly/accessions.txt')
 #    )
+#  output:
+#    "output/11320/assembly/biosampleMeta_PL.tsv"
+#  run:
+#    build_table(input.header, input.rows, output[0])
+#
+#rule master_table:
+#  input:
+#    header="input/v0.8_biosampleMeta_header.tsv",
+#    marburg_assembly=rules.marburg_assembly_table.output[0],
+#    influenzaA_assembly=rules.influenzaA_assembly_table.output[0],
+#    marburg_sra=rules.marburg_sra_table.output[0],
+#    influenzaA_sra=rules.influenzaA_sra_table.output[0]
+#  output:
+#    "output/biosampleMeta_PL.tsv"
+#  shell:
+#    """
+#      cp {input.header} {output}
+#      tail -n +2 {input.marburg_assembly} >> {output}
+#      tail -n +2 {input.influenzaA_assembly} >> {output}
+#      tail -n +2 {input.marburg_sra} >> {output}
+#      tail -n +2 {input.influenzaA_sra} >> {output}
+#    """
