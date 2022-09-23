@@ -20,7 +20,10 @@ wildcard_constraints:
 
 lineage = {
   11269: 'Marburg marburgvirus|Marburgvirus|Filoviridae|Mononegavirales|Monjiviricetes|Haploviricotina|Negarnaviricota|Orthornavirae|Riboviria|Viruses',
-  11320: 'Influenza A virus|Alphainfluenzavirus|Orthomyxoviridae|Articulavirales|Insthoviricetes|Polyploviricotina|Negarnaviricota|Orthornavirae|Riboviria|Viruses'
+  11320: 'Influenza A virus|Alphainfluenzavirus|Orthomyxoviridae|Articulavirales|Insthoviricetes|Polyploviricotina|Negarnaviricota|Orthornavirae|Riboviria|Viruses',
+  433733: 'human lung metagenome',
+  2697049: 'Viruses|Riboviria|Orthornavirae|Pisuviricota|Pisoniviricetes|Nidovirales|Cornidovirineae|Coronaviridae|Orthocoronavirinae|Betacoronavirus|Sarbecovirus|Severe acute respiratory syndrome-related coronavirus',
+  211044: 'Influenza A virus|Alphainfluenzavirus|Orthomyxoviridae|Articulavirales|Insthoviricetes|Polyploviricotina|Negarnaviricota|Orthornavirae|Riboviria|Viruses'
 }
 
 
@@ -308,6 +311,21 @@ rule db_search_json:
   run:
     xml2json(input[0], output[0]) 
 
+rule db_fetch:
+  output:
+    "db/{database}/{id_}/fetch.xml"
+  run:
+    soup = efetch(wildcards.database, wildcards.id_)
+    write_soup(soup, output[0])
+
+rule db_fetch_json:
+  input:
+    rules.db_fetch.output[0]
+  output:
+    "db/{database}/{id_}/fetch.json"
+  run:
+    xml2json(input[0], output[0]) 
+
 rule taxon_search:
   output:
     "output/{tax_id}/{database}/search.xml"
@@ -516,7 +534,7 @@ def scrape_sra_query(sra_query, sra_accession):
     'instrument': fetch_instrument_from_sra(sra_query),
     'bioproject': sra_query['STUDY']['@alias'],
     'sample_name':  deep_safe_fetch(run_, ['Pool', 'Member' ,'@sample_name']),
-    'collected_by': sra_query['SUBMISSION']['@center_name']
+    'collected_by': deep_safe_fetch(sra_query, ['SUBMISSION', '@center_name'])
   }
 
 rule biosample_meta_row:

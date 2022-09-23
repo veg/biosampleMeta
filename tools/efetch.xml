@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<tool id="efetch" name="NCBI efetch" version="0.0.1">
+  <description>Perform eFetch operation from NCBI</description>
+    <requirements>
+      <requirement type="package" version="1.79">biopython</requirement>
+      <requirement type="package" version="4.11.1">beautifulsoup4</requirement>
+      <requirement type="package" version="0.13.0">xmltodict</requirement>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+mkdir output;
+/home/galaxy/ncbi/bin/python ${__tool_directory__}/efetch.py --db $database
+--accession $accession
+--email $email;
+rm output/temp.xml;
+        ]]>
+    </command>
+    <inputs>
+      <param name="database" type="text" label="Database to pull from"/>
+      <param name="accession" type="data" label="Accession"/>
+      <param name="email" type="text" label="Email address"/>
+    </inputs>
+    <outputs>
+      <collection name="output1" type="list" label="NCBI EFetch results">
+        <discover_datasets pattern="__designation_and_ext__" directory="output" format="json"/>
+      </collection>
+    </outputs>
+    <tests>
+    </tests>
+    <help>
+    </help>
+    <citations>
+    </citations>
+</tool>
+

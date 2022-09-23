@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<tool id="argos-biosample" name="ArgosDB BioSample scrape" version="0.0.1">
+  <description>Scrape NCBI Biosample for ArgosDB</description>
+    <requirements>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+/home/galaxy/ncbi/bin/python ${__tool_directory__}/argos-biosample.py
+--input $input
+--output $output;
+        ]]>
+    </command>
+    <inputs>
+      <param name="input" type="data" label="Input BioSample JSON"/>
+    </inputs>
+    <outputs>
+      <data name="output" format="json"/>
+    </outputs>
+    <tests>
+    </tests>
+    <help>
+    </help>
+    <citations>
+    </citations>
+</tool>
+
