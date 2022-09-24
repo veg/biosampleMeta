@@ -1,1 +1,1 @@
-from scrape import *
+from .scrape import *

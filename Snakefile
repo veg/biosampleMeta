@@ -1,12 +1,9 @@
 import os
-import re
 import csv
-import json
-from time import sleep
 
 from Bio import Entrez
-from bs4 import BeautifulSoup
-import xmltodict
+
+from biosampleMeta import *
 
 
 Entrez.email = os.environ.get('ENTREZ_EMAIL') or None
@@ -26,87 +23,9 @@ lineage = {
   211044: 'Influenza A virus|Alphainfluenzavirus|Orthomyxoviridae|Articulavirales|Insthoviricetes|Polyploviricotina|Negarnaviricota|Orthornavirae|Riboviria|Viruses'
 }
 
-
-def efetch(db, accession):
-  handle = Entrez.efetch(db=db, id=accession)
-  raw_xml = handle.read()
-  handle.close()
-  soup = BeautifulSoup(raw_xml, 'xml')
-  return soup
-
-
-def elink(db, dbfrom, id_, retmax=1000):
-  handle = Entrez.elink(db=db, dbfrom=dbfrom, id=id_, retmax=retmax)
-  raw_xml = handle.read()
-  handle.close()
-  soup = BeautifulSoup(raw_xml, 'xml')
-  return soup
-
-
-def esearch(db, term, retmax=1000000):
-  handle = Entrez.esearch(db=db, term=term, retmax=retmax)
-  raw_xml = handle.read()
-  handle.close()
-  soup = BeautifulSoup(raw_xml, 'xml')
-  return soup
-
-
-def esummary(db, accession):
-  handle = Entrez.esummary(db=db, id=accession, report="full")
-  raw_xml = handle.read()
-  handle.close()
-  soup = BeautifulSoup(raw_xml, 'xml')
-  return soup
-  
-
-def read_soup(filename):
-    with open(filename) as f:
-      soup = BeautifulSoup(f, 'xml')
-    return soup
-
-
-def write_soup(soup, filename):
-  pretty = soup.prettify()
-  with open(filename, 'w') as f:
-      f.write(pretty)
-
-
-def read_ids(filename):
-  with open(filename) as f:
-    ids = f.read().splitlines()
-  return ids
-
-
-def write_ids(ids, filename):
-  with open(filename, 'w') as f:
-    f.write('\n'.join(ids))
-
-
-def read_json(filename):
-  with open(filename) as json_file:
-    result = json.load(json_file)
-  return result
-
-
-def write_json(result, filename):
-  with open(filename, 'w') as json_file:
-    json.dump(result, json_file, indent=2)
-
-
-def xml2json(xml_filename, json_filename):
-  with open(xml_filename) as xml_file:
-    xml = xml_file.read()
-  if not xml:
-    write_ids(['[]'], json_filename)
-    return
-  converted = xmltodict.parse(xml)
-  with open(json_filename, 'w') as json_file:
-    json.dump(converted, json_file, indent=2)
-
-
 rule bioproject_query:
   output:
-    "output/{tax_id}/bioprojects/search.xml",
+    "output/tax_id/{tax_id}/bioprojects/search.xml",
   run:
     tax_id = 'txid' + wildcards.tax_id
     soup = esearch('bioproject', tax_id)
@@ -116,7 +35,7 @@ rule bioproject_ids_from_query:
   input:
     rules.bioproject_query.output[0]
   output:
-    "output/{tax_id}/bioprojects/ids.txt"
+    "output/tax_id/{tax_id}/bioprojects/ids.txt"
   run:
     soup = read_soup(input[0])
     ids = [
@@ -128,13 +47,13 @@ rule bioproject_ids_from_query:
 rule all_bioproject_ids:
   input:
     expand(
-      "output/{tax_id}/bioprojects/ids.txt",
+      "output/tax_id/{tax_id}/bioprojects/ids.txt",
       tax_id=read_ids('input/tax_ids.txt')
     )
 
 rule bioproject_xml_fetch:
   output:
-    "output/{tax_id}/bioprojects/{bp_accession}/bioproject.xml"
+    "output/tax_id/{tax_id}/bioprojects/{bp_accession}/bioproject.xml"
   run:
     soup = efetch('bioproject', wildcards.bp_accession)
     write_soup(soup, output[0])
@@ -143,7 +62,7 @@ rule bioproject_sra_query:
   input:
     rules.bioproject_xml_fetch.output[0]
   output:
-    "output/{tax_id}/bioprojects/{bp_accession}/sra_accessions.xml"
+    "output/tax_id/{tax_id}/bioprojects/{bp_accession}/sra_accessions.xml"
   run:
     soup = elink('sra', 'bioproject', id_=wildcards.bp_accession)
     write_soup(soup, output[0])
@@ -152,7 +71,7 @@ rule bioproject_sra_ids:
   input:
     rules.bioproject_sra_query.output[0]
   output:
-    "output/{tax_id}/bioprojects/{bp_accession}/sra_accessions.txt"
+    "output/tax_id/{tax_id}/bioprojects/{bp_accession}/sra_accessions.txt"
   run:
     soup = read_soup(input[0])
     ids = [
@@ -165,7 +84,7 @@ rule bioproject_biosample_query:
   input:
     rules.bioproject_xml_fetch.output[0]
   output:
-    "output/{tax_id}/bioprojects/{bp_accession}/biosample_links.xml"
+    "output/tax_id/{tax_id}/bioprojects/{bp_accession}/biosample_links.xml"
   run:
     soup = elink('biosample', 'bioproject', wildcards.bp_accession)
     write_soup(soup, output[0])
@@ -174,7 +93,7 @@ rule bioproject_biosample_ids:
   input:
     rules.bioproject_biosample_query.output[0]
   output:
-    "output/{tax_id}/bioprojects/{bp_accession}/biosample_accessions.txt"
+    "output/tax_id/{tax_id}/bioprojects/{bp_accession}/biosample_accessions.txt"
   run:
     soup = read_soup(input[0])
     samn_ids = [
@@ -185,7 +104,7 @@ rule bioproject_biosample_ids:
  
 rule bioproject_biosample_entry:
   output:
-    "output/{tax_id}/bioprojects/{bp_accession}/biosamples/{bs_accession}/entry.xml"
+    "output/tax_id/{tax_id}/bioprojects/{bp_accession}/biosamples/{bs_accession}/entry.xml"
   run:
     soup = efetch('biosample', wildcards.bs_accession)
     write_soup(soup, output[0])
@@ -194,7 +113,7 @@ rule bioproject_biosample_geo_accession:
   input:
     rules.bioproject_biosample_entry.output[0]
   output:
-    "output/{tax_id}/bioprojects/{bp_accession}/biosamples/{bs_accession}/geo_accession.txt"
+    "output/tax_id/{tax_id}/bioprojects/{bp_accession}/biosamples/{bs_accession}/geo_accession.txt"
   run:
     soup = read_soup(input[0])
     geo_accession = soup.find('Id', {'db': "GEO"}).text.strip()
@@ -204,7 +123,7 @@ rule bioproject_biosample_geo_xml:
   input:
     rules.bioproject_biosample_geo_accession.output[0]
   output:
-    "output/{tax_id}/bioprojects/{bp_accession}/biosamples/{bs_accession}/geo.xml"
+    "output/tax_id/{tax_id}/bioprojects/{bp_accession}/biosamples/{bs_accession}/geo.xml"
   shell:
     """
       sleep 3;
@@ -328,7 +247,7 @@ rule db_fetch_json:
 
 rule taxon_search:
   output:
-    "output/{tax_id}/{database}/search.xml"
+    "output/tax_id/{tax_id}/{database}/search.xml"
   run:
     tax_id = 'txid' + wildcards.tax_id + '[ORGN]'
     soup = esearch(wildcards.database, tax_id)
@@ -338,13 +257,13 @@ rule taxon_search_json:
   input:
     rules.taxon_search.output[0]
   output:
-    "output/{tax_id}/{database}/search.json"
+    "output/tax_id/{tax_id}/{database}/search.json"
   run:
     xml2json(input[0], output[0])
 
 rule taxon_summary:
   output:
-    "output/{tax_id}/{database}/summary.xml"
+    "output/tax_id/{tax_id}/{database}/summary.xml"
   run:
     tax_id = wildcards.tax_id
     soup = esummary(wildcards.database, tax_id)
@@ -354,13 +273,13 @@ rule taxon_summary_json:
   input:
     rules.taxon_summary.output[0]
   output:
-    "output/{tax_id}/{database}/summary.json"
+    "output/tax_id/{tax_id}/{database}/summary.json"
   run:
     xml2json(input[0], output[0])
 
 rule taxon_fetch:
   output:
-    "output/{tax_id}/{database}/fetch.xml"
+    "output/tax_id/{tax_id}/{database}/fetch.xml"
   run:
     tax_id = wildcards.tax_id
     soup = efetch(wildcards.database, tax_id)
@@ -370,7 +289,7 @@ rule taxon_fetch_json:
   input:
     rules.taxon_fetch.output[0]
   output:
-    "output/{tax_id}/{database}/fetch.json"
+    "output/tax_id/{tax_id}/{database}/fetch.json"
   run:
     xml2json(input[0], output[0])
 
@@ -378,7 +297,7 @@ checkpoint accessions:
   input:
     rules.taxon_search_json.output[0]
   output:
-    "output/{tax_id}/{database}/accessions.txt"
+    "output/tax_id/{tax_id}/{database}/accessions.txt"
   run:
     query = read_json(input[0])
     id_list = query['eSearchResult']['IdList']['Id']
@@ -386,7 +305,7 @@ checkpoint accessions:
 
 rule assembly_query:
   output:
-    "output/{tax_id}/assembly/{assembly_id}/query.xml"
+    "output/tax_id/{tax_id}/assembly/{assembly_id}/query.xml"
   run:
     soup = esummary('assembly', wildcards.assembly_id)
     write_soup(soup, output[0])
@@ -395,7 +314,7 @@ rule assembly_query_json:
   input:
     rules.assembly_query.output[0]
   output:
-    "output/{tax_id}/assembly/{assembly_id}/query.json"
+    "output/tax_id/{tax_id}/assembly/{assembly_id}/query.json"
   run:
     xml2json(input[0], output[0])
 
@@ -403,7 +322,7 @@ rule assembly_pluck_biosample_id:
   input:
     rules.assembly_query_json.output[0]
   output:
-    "output/{tax_id}/assembly/{assembly_id}/biosample_id.txt"
+    "output/tax_id/{tax_id}/assembly/{assembly_id}/biosample_id.txt"
   run:
     query = read_json(input[0])
     base = query['eSummaryResult']['DocumentSummarySet']['DocumentSummary']
@@ -416,7 +335,7 @@ rule assembly_biosample_fetch:
   input:
     rules.assembly_pluck_biosample_id.output[0]
   output:
-    "output/{tax_id}/assembly/{assembly_id}/biosample.xml"
+    "output/tax_id/{tax_id}/assembly/{assembly_id}/biosample.xml"
   run:
     with open(input[0]) as biosample_id_file:
       biosample_id = biosample_id_file.read()
@@ -430,7 +349,7 @@ rule assembly_biosample_json:
   input:
     rules.assembly_biosample_fetch.output[0]
   output:
-    "output/{tax_id}/assembly/{assembly_id}/biosample.json"
+    "output/tax_id/{tax_id}/assembly/{assembly_id}/biosample.json"
   run:
     xml2json(input[0], output[0])
 
@@ -439,7 +358,7 @@ rule assembly_row:
     assembly=rules.assembly_query_json.output[0],
     biosample=rules.assembly_biosample_json.output[0]
   output:
-    "output/{tax_id}/assembly/{assembly_id}/row.json"
+    "output/tax_id/{tax_id}/assembly/{assembly_id}/row.json"
   run:
     assembly = read_json(input.assembly)
     biosample = read_json(input.biosample)
@@ -453,26 +372,26 @@ rule assembly_row:
     })
     write_json(scraped, output[0])
 
-rule sra_query:
+rule tax_id_sra_query:
   output:
-    "output/{tax_id}/sra/{sra_accession}/query.xml"
+    "output/tax_id/{tax_id}/sra/{sra_accession}/query.xml"
   run:
     soup = efetch('sra', wildcards.sra_accession)
     write_soup(soup, output[0])
 
-rule sra_query_json:
+rule tax_id_sra_query_json:
   input:
-    rules.sra_query.output[0]
+    rules.tax_id_sra_query.output[0]
   output:
-    "output/{tax_id}/sra/{sra_accession}/query.json"
+    "output/tax_id/{tax_id}/sra/{sra_accession}/query.json"
   run:
     xml2json(input[0], output[0])
 
 rule sra_pluck_biosample:
   input:
-    rules.sra_query.output[0]
+    rules.tax_id_sra_query.output[0]
   output:
-    "output/{tax_id}/sra/{sra_accession}/biosample_id.txt"
+    "output/tax_id/{tax_id}/sra/{sra_accession}/biosample_id.txt"
   run:
     soup = read_soup(input[0])
     tag = soup.find('EXTERNAL_ID', {'namespace': 'BioSample'})
@@ -483,7 +402,7 @@ rule sra_biosample_fetch:
   input:
     rules.sra_pluck_biosample.output[0]
   output:
-    "output/{tax_id}/sra/{sra_accession}/biosample.xml"
+    "output/tax_id/{tax_id}/sra/{sra_accession}/biosample.xml"
   run:
     with open(input[0]) as biosample_id_file:
       biosample_id = biosample_id_file.read()
@@ -494,7 +413,7 @@ rule sra_biosample_json:
   input:
     rules.sra_biosample_fetch.output[0]
   output:
-    "output/{tax_id}/sra/{sra_accession}/biosample.json"
+    "output/tax_id/{tax_id}/sra/{sra_accession}/biosample.json"
   run:
     xml2json(input[0], output[0])
     
@@ -539,10 +458,10 @@ def scrape_sra_query(sra_query, sra_accession):
 
 rule biosample_meta_row:
   input:
-    sra=rules.sra_query_json.output[0],
+    sra=rules.tax_id_sra_query_json.output[0],
     biosample=rules.sra_biosample_json.output[0]
   output:
-    "output/{tax_id}/sra/{sra_accession}/row.json"
+    "output/tax_id/{tax_id}/sra/{sra_accession}/row.json"
   run:
     sra_query = read_json(input.sra)
     biosample = read_json(input.biosample)
@@ -575,7 +494,7 @@ def table_input(wildcards):
   parameters = (wildcards.tax_id, wildcards.database)
   input_accessions = checkpoints.accessions.get(**wildcards).output[0]
   files = expand(
-    "output/%s/%s/{accession}/row.json" % parameters,
+    "output/tax_id/%s/%s/{accession}/row.json" % parameters,
     accession=read_ids(input_accessions)
   )
   return files
@@ -584,63 +503,32 @@ def table_input(wildcards):
 rule sub_table:
   input:
     header="input/v0.8_biosampleMeta_header.tsv",
-    accessions="output/{tax_id}/{database}/accessions.txt",
+    accessions="output/tax_id/{tax_id}/{database}/accessions.txt",
     rows=table_input
   output:
-    "output/{tax_id}/{database}/biosampleMeta_PL.tsv"
+    "output/tax_id/{tax_id}/{database}/biosampleMeta_PL.tsv"
   run:
     build_table(input.header, input.rows, output[0])
 
-#rule marburg_assembly_table:
-#  input:
-#    header="input/v0.8_biosampleMeta_header.tsv",
-#    rows=expand(
-#      "output/11269/assembly/{assembly_accession}/row.json",
-#      assembly_accession=read_ids('output/11269/assembly/accessions.txt')
-#    )
-#  output:
-#    "output/11269/assembly/biosampleMeta_PL.tsv"
-#  run:
-#    build_table(input.header, input.rows, output[0])
-#
-#rule influenzaA_sra_table:
-#  input:
-#    header="input/v0.8_biosampleMeta_header.tsv",
-#    rows=expand(
-#      "output/11320/sra/{sra_accession}/row.json",
-#      sra_accession=read_ids('input/sra_accessions/11320.txt')
-#    )
-#  output:
-#    "output/11320/sra/biosampleMeta_PL.tsv"
-#  run:
-#    build_table(input.header, input.rows, output[0])
-#
-#rule influenzaA_assembly_table:
-#  input:
-#    header="input/v0.8_biosampleMeta_header.tsv",
-#    rows=expand(
-#      "output/11320/assembly/{assembly_accession}/row.json",
-#      assembly_accession=read_ids('output/11320/assembly/accessions.txt')
-#    )
-#  output:
-#    "output/11320/assembly/biosampleMeta_PL.tsv"
-#  run:
-#    build_table(input.header, input.rows, output[0])
-#
-#rule master_table:
-#  input:
-#    header="input/v0.8_biosampleMeta_header.tsv",
-#    marburg_assembly=rules.marburg_assembly_table.output[0],
-#    influenzaA_assembly=rules.influenzaA_assembly_table.output[0],
-#    marburg_sra=rules.marburg_sra_table.output[0],
-#    influenzaA_sra=rules.influenzaA_sra_table.output[0]
-#  output:
-#    "output/biosampleMeta_PL.tsv"
-#  shell:
-#    """
-#      cp {input.header} {output}
-#      tail -n +2 {input.marburg_assembly} >> {output}
-#      tail -n +2 {input.influenzaA_assembly} >> {output}
-#      tail -n +2 {input.marburg_sra} >> {output}
-#      tail -n +2 {input.influenzaA_sra} >> {output}
-#    """
+rule sra_query:
+  output:
+    "output/sra/{sra_accession}/query.xml"
+  run:
+    soup = efetch('sra', wildcards.sra_accession)
+    write_soup(soup, output[0])
+
+rule sra_query_json:
+  input:
+    rules.sra_query.output[0]
+  output:
+    "output/sra/{sra_accession}/query.json"
+  run:
+    xml2json(input[0], output[0])
+
+rule sra_pluck_biosample_id:
+  input:
+    rules.sra_query_json.output[0]
+  output:
+    "output/sra/{sra_accession}/biosample_id.txt"
+  run:
+    pluck_biosample_from_sra(input[0], output[0])
