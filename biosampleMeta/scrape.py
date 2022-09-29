@@ -80,3 +80,11 @@ def xml2json(xml_filename, json_filename):
     converted = xmltodict.parse(xml)
     with open(json_filename, "w") as json_file:
         json.dump(converted, json_file, indent=2)
+
+
+def pluck_sra_from_biosample(input_sra, output_text):
+    sra = read_json(input_sra)
+    experiment = sra['EXPERIMENT_PACKAGE_SET']['EXPERIMENT_PACKAGE']['EXPERIMENT']
+    identifiers = experiment['DESIGN']['SAMPLE_DESCRIPTOR']['IDENTIFIERS']
+    id_ = identifiers['EXTERNAL_ID']['#text']
+    write_ids([id_], output_text)

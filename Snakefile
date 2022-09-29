@@ -531,4 +531,11 @@ rule sra_pluck_biosample_id:
   output:
     "output/sra/{sra_accession}/biosample_id.txt"
   run:
-    pluck_biosample_from_sra(input[0], output[0])
+    pluck_sra_from_biosample(input[0], output[0])
+
+rule sra_biosample_table:
+  input:
+    expand(
+      "output/sra/{sra_accession}/biosample_id.txt",
+      sra_accession=read_ids('input/accessions.txt')
+    )
