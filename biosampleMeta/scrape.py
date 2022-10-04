@@ -82,9 +82,135 @@ def xml2json(xml_filename, json_filename):
         json.dump(converted, json_file, indent=2)
 
 
-def pluck_sra_from_biosample(input_sra, output_text):
+def safe_fetch(dictionary, keys):
+  if type(keys) == str:
+    return '-' if not keys in dictionary else dictionary[keys]
+  else:
+    for key in keys:
+      if key in dictionary:
+        return dictionary[key]
+    return '-'
+
+
+def deep_safe_fetch(dictionary, keys):
+  for key in keys:
+    if key in dictionary:
+      dictionary = dictionary[key]
+      if type(dictionary) != dict:
+        return dictionary
+    else:
+      return '-'
+
+
+def fetch_instrument_from_sra(sra_query):
+  platform = sra_query['EXPERIMENT']['PLATFORM']
+  key = list(platform.keys())[0]
+  instrument = key + ' - ' + platform[key]['INSTRUMENT_MODEL']
+  return instrument
+
+
+def scrape_sra_query(sra_query, sra_accession):
+  sra_query = sra_query['EXPERIMENT_PACKAGE_SET']['EXPERIMENT_PACKAGE']
+  run_ = sra_query['RUN_SET']['RUN']
+  if type(run_) == list:
+    run_ = [r for r in run_ if r['@accession'] == sra_accession][0]
+  return {
+    'instrument': fetch_instrument_from_sra(sra_query),
+    'bioproject': sra_query['STUDY']['@alias'],
+    'sample_name':  deep_safe_fetch(run_, ['Pool', 'Member' ,'@sample_name']),
+    'collected_by': deep_safe_fetch(sra_query, ['SUBMISSION', '@center_name'])
+  }
+
+
+def pluck_biosample_from_sra(input_sra, output_text):
     sra = read_json(input_sra)
-    experiment = sra['EXPERIMENT_PACKAGE_SET']['EXPERIMENT_PACKAGE']['EXPERIMENT']
-    identifiers = experiment['DESIGN']['SAMPLE_DESCRIPTOR']['IDENTIFIERS']
-    id_ = identifiers['EXTERNAL_ID']['#text']
+    experiment = sra["EXPERIMENT_PACKAGE_SET"]["EXPERIMENT_PACKAGE"]["EXPERIMENT"]
+    identifiers = experiment["DESIGN"]["SAMPLE_DESCRIPTOR"]["IDENTIFIERS"]
+    id_ = identifiers["EXTERNAL_ID"]["#text"]
     write_ids([id_], output_text)
+
+
+def get_key_from_attribute(attribute):
+    if "@harmonized_name" in attribute:
+        return attribute["@harmonized_name"]
+    return attribute["@attribute_name"]
+
+
+def convert_sample_attributes_to_dict(sra_biosample):
+    if sra_biosample["Attributes"] is None:
+        return {}
+    attribute_list = sra_biosample["Attributes"]["Attribute"]
+    if type(attribute_list) == dict:
+        attribute_list = [attribute_list]
+    return {
+        get_key_from_attribute(attribute): attribute["#text"]
+        for attribute in attribute_list
+    }
+
+
+def scrape_biosample(sra_biosample):
+    if sra_biosample == []:
+        organism_name = "-"
+        biosample = "-"
+        sample_dict = {}
+    else:
+        if sra_biosample["BioSampleSet"] is None:
+            organism_name = "-"
+            biosample = "-"
+            sample_dict = {}
+        else:
+            base = sra_biosample["BioSampleSet"]["BioSample"]
+            sample_dict = convert_sample_attributes_to_dict(base)
+            organism_name = safe_fetch(
+                base["Description"]["Organism"], ["OrganismName", "@taxonomy_name"]
+            )
+            biosample = base["@accession"]
+
+    return {
+        "organism_name": organism_name,
+        "biosample": biosample,
+        "strain": safe_fetch(sample_dict, "strain"),
+        "isolate": safe_fetch(sample_dict, "isolate"),
+        "isolation_source": safe_fetch(sample_dict, "isolation_source"),
+        "collection_date": safe_fetch(
+            sample_dict, ["collection_date", "collection date"]
+        ),
+        "geo_loc_name": safe_fetch(
+            sample_dict, ["geo_loc_name", "geographic location (country and/or sea)"]
+        ),
+        "isolation_source": safe_fetch(sample_dict, "isolation_source"),
+        "lat_lon": safe_fetch(sample_dict, "lat_lon"),
+        "culture_collection": safe_fetch(sample_dict, "culture_collection"),
+        "host": safe_fetch(sample_dict, ["lab_host", "host"]),
+        "host_age": safe_fetch(sample_dict, "host_age"),
+        "host_description": safe_fetch(sample_dict, "host_description"),
+        "host_disease": safe_fetch(sample_dict, ["host_disease", "disease"]),
+        "host_disease_outcome": safe_fetch(sample_dict, "host_disease_outcome"),
+        "host_disease_stage": safe_fetch(sample_dict, "host_disease_stage"),
+        "host_health_state": safe_fetch(sample_dict, "host_health_state"),
+        "host_sex": safe_fetch(sample_dict, "host_sex"),
+        "id_method": safe_fetch(sample_dict, "identification_method"),
+        "sample_name": safe_fetch(sample_dict, "sample_name"),
+    }
+
+
+def scrape_assembly(assembly):
+    base = assembly["eSummaryResult"]["DocumentSummarySet"]["DocumentSummary"]
+    gb_key = "GB_BioProjects"
+    rs_key = "RS_BioProjects"
+    has_gbbp_key = gb_key in base and base[gb_key] != None
+    has_rsbp_key = rs_key in base and base[rs_key] != None
+    if has_gbbp_key or has_rsbp_key:
+        key = gb_key if has_gbbp_key else rs_key
+        bioproject = base[key]["Bioproj"]["BioprojectAccn"]
+    else:
+        bioproject = "-"
+    has_organism = "Organism" in base
+    organism = "-" if not has_organism else base["Organism"]
+    return {
+        "bioproject": bioproject,
+        "organism_name": safe_fetch(base, "Organism"),
+        "genome_assembly_id": safe_fetch(base, "AssemblyAccession"),
+        "instrument": "-",
+        "collected_by": "-",
+    }
