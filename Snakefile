@@ -133,7 +133,7 @@ rule bioproject_biosample_geo_xml:
 
 rule db_search:
   output:
-    "db/{database}/{id_}/search.xml"
+    "output/db/{database}/{id_}/search.xml"
   run:
     soup = esearch(wildcards.database, wildcards.id_)
     write_soup(soup, output[0])
@@ -142,13 +142,13 @@ rule db_search_json:
   input:
     rules.db_search.output[0]
   output:
-    "db/{database}/{id_}/search.json"
+    "output/db/{database}/{id_}/search.json"
   run:
     xml2json(input[0], output[0]) 
 
 rule db_fetch:
   output:
-    "db/{database}/{id_}/fetch.xml"
+    "output/db/{database}/{id_}/fetch.xml"
   run:
     soup = efetch(wildcards.database, wildcards.id_)
     write_soup(soup, output[0])
@@ -157,9 +157,18 @@ rule db_fetch_json:
   input:
     rules.db_fetch.output[0]
   output:
-    "db/{database}/{id_}/fetch.json"
+    "output/db/{database}/{id_}/fetch.json"
   run:
     xml2json(input[0], output[0]) 
+
+rule db_link:
+  output:
+    xml="output/db_link/{database}/{database_from}/{id_}/link.xml",
+    json="output/db_link/{database}/{database_from}/{id_}/link.json"
+  run:
+    soup = elink(wildcards.database, wildcards.database_from, wildcards.id_)
+    write_soup(soup, output.xml)
+    xml2json(output.xml, output.json)
 
 rule taxon_search:
   output:
@@ -278,7 +287,11 @@ rule assembly_pluck_sraid_from_biosample:
     biosample = read_json(input[0])
     keys = ['BioSampleSet', 'BioSample', 'Ids', 'Id']
     ids = deep_safe_fetch(biosample, keys)
-    id_ = [an_id['#text'] for an_id in ids if an_id['@db'] == 'SRA']
+    id_ = [
+      an_id['#text']
+      for an_id in ids
+      if safe_fetch(an_id, '@db') == 'SRA'
+    ]
     write_ids(id_, output[0])
 
 rule assembly_sra_fetch:
@@ -287,10 +300,17 @@ rule assembly_sra_fetch:
   output:
     "output/tax_id/{tax_id}/assembly/{assembly_id}/sra.xml"
   run:
-    id_ = read_ids(input[0])[0]
-    print(id_)
-    soup = efetch('sra', id_)
+    id_ = read_ids(input[0])[0].strip()
+    soup = esearch('sra', id_)
     write_soup(soup, output[0])
+
+rule assembly_sra_fetch_json:
+  input:
+    rules.assembly_sra_fetch.output[0]
+  output:
+    "output/tax_id/{tax_id}/assembly/{assembly_id}/sra.json"
+  run:
+    xml2json(input[0], output[0])
 
 rule assembly_sra_query:
   output:
