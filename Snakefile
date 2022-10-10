@@ -475,3 +475,10 @@ rule sra_biosample_table:
       "output/sra/{sra_accession}/biosample_id.txt",
       sra_accession=read_ids('input/accessions.txt')
     )
+
+rule sra_nucleotide_gisaid_intersection:
+  input:
+    expand(
+      "output/sra/{sra_accession}/query.json",
+      sra_accession=read_ids('output/sra-accessions-intersecting-with-gisaid.txt')
+    )
