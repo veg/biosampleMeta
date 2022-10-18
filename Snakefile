@@ -12,7 +12,12 @@ Entrez.api_key = os.environ.get('ENTREZ_API_KEY') or None
 
 wildcard_constraints:
   bp_accession="[^/]+",
-  tax_id="[^/]+"
+  tax_id="[^/]+",
+  bioproject_id="[^/]+",
+  db="[^/]+",
+  db_id="[^/]+",
+  otherdb="[^/]+",
+  otherdb_id="[^/]+"
 
 
 lineage = {
@@ -38,10 +43,7 @@ rule bioproject_ids_from_query:
     "output/tax_id/{tax_id}/bioprojects/ids.txt"
   run:
     soup = read_soup(input[0])
-    ids = [
-      id_.text.strip()
-      for id_ in soup.find('IdList').findAll('Id')
-    ]
+    ids = extract_link_ids(soup)
     write_ids(ids, output[0])
 
 rule all_bioproject_ids:
@@ -391,6 +393,48 @@ rule sra_biosample_json:
     "output/tax_id/{tax_id}/sra/{sra_accession}/biosample.json"
   run:
     xml2json(input[0], output[0])
+
+rule bioproject_db_links_xml:
+  output:
+    "output/bioproject/{bioproject_id}/{db}/links.xml"
+  run:
+    soup = elink(wildcards.db, 'bioproject', id_=wildcards.bioproject_id)
+    write_soup(soup, output[0])
+
+rule bioproject_db_links_text:
+  input:
+    rules.bioproject_db_links_xml.output[0]
+  output:
+    "output/bioproject/{bioproject_id}/{db}/links.txt"
+  run:
+    soup = read_soup(input[0])
+    ids = extract_link_ids(soup)
+    write_ids(ids, output[0])
+
+rule bioproject_db_otherdb_links_xml:
+  output:
+    "output/bioproject/{bioproject_id}/{db}/{db_id}/{otherdb}/links.xml"
+  run:
+    soup = elink(wildcards.otherdb, wildcards.db, id_=wildcards.db_id)
+    write_soup(soup, output[0])
+
+rule bioproject_db_otherdb_links_text:
+  input:
+    rules.bioproject_db_otherdb_links_xml.output[0]
+  output:
+    "output/bioproject/{bioproject_id}/{db}/{db_id}/{otherdb}/links.txt"
+  run:
+    soup = read_soup(input[0])
+    ids = extract_link_ids(soup)
+    write_ids(ids, output[0])
+
+rule bioproject_db_otherdb_link_query:
+  output:
+    "output/bioproject/{bioproject_id}/{db}/{db_id}/{otherdb}/{otherdb_id}/query.xml"
+  run:
+    print(wildcards.otherdb, wildcards.otherdb_id)
+    soup = efetch(wildcards.otherdb, wildcards.otherdb_id)
+    write_soup(soup, output[0])
 
 rule biosample_meta_row:
   input:

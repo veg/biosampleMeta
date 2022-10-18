@@ -214,3 +214,9 @@ def scrape_assembly(assembly):
         "instrument": "-",
         "collected_by": "-",
     }
+
+def extract_link_ids(soup):
+    return [
+      id_.text.strip()
+      for id_ in soup.find('LinkSetDb').findAll('Id')
+    ]
