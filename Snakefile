@@ -43,7 +43,7 @@ rule bioproject_ids_from_query:
     "output/tax_id/{tax_id}/bioprojects/ids.txt"
   run:
     soup = read_soup(input[0])
-    ids = extract_link_ids(soup)
+    ids = extract_xml_link_ids(soup)
     write_ids(ids, output[0])
 
 rule all_bioproject_ids:
@@ -165,10 +165,10 @@ rule db_fetch_json:
 
 rule db_link:
   output:
-    xml="output/db_link/{database}/{database_from}/{id_}/link.xml",
-    json="output/db_link/{database}/{database_from}/{id_}/link.json"
+    xml="output/db/{database}/{id_}/{database_from}/link.xml",
+    json="output/db/{database}/{id_}/{database_from}/link.json"
   run:
-    soup = elink(wildcards.database, wildcards.database_from, wildcards.id_)
+    soup = elink(wildcards.database_from, wildcards.database, wildcards.id_)
     write_soup(soup, output.xml)
     xml2json(output.xml, output.json)
 
@@ -408,7 +408,7 @@ rule bioproject_db_links_text:
     "output/bioproject/{bioproject_id}/{db}/links.txt"
   run:
     soup = read_soup(input[0])
-    ids = extract_link_ids(soup)
+    ids = extract_xml_link_ids(soup)
     write_ids(ids, output[0])
 
 rule bioproject_db_otherdb_links_xml:
@@ -425,7 +425,7 @@ rule bioproject_db_otherdb_links_text:
     "output/bioproject/{bioproject_id}/{db}/{db_id}/{otherdb}/links.txt"
   run:
     soup = read_soup(input[0])
-    ids = extract_link_ids(soup)
+    ids = extract_xml_link_ids(soup)
     write_ids(ids, output[0])
 
 rule bioproject_db_otherdb_link_query:
@@ -460,8 +460,7 @@ rule biosample_meta_row:
 def build_table(header, rows, out):
     with open(header) as f:
       fieldnames = f.read().strip().split('\t')
-    tsv_file = open(out, 'w')
-    writer = csv.DictWriter(tsv_file, fieldnames=fieldnames, delimiter='\t')
+    y
     writer.writeheader()
     for row_filepath in rows:
       with open(row_filepath) as json_file:
@@ -526,3 +525,42 @@ rule sra_nucleotide_gisaid_intersection:
       "output/sra/{sra_accession}/query.json",
       sra_accession=read_ids('output/sra-accessions-intersecting-with-gisaid.txt')
     )
+
+def argos_biosample_input(wildcards):
+  biosample_ids = read_ids("./input/PRJNA231221_biosample_ids.txt")
+  nucleotide = [
+    "output/db/biosample/%s/nucleotide/link.json" % biosample_id
+    for biosample_id in biosample_ids
+  ]
+  sra = [
+    "output/db/biosample/%s/sra/link.json" % biosample_id
+    for biosample_id in biosample_ids
+  ]
+  return nucleotide+sra
+
+rule argos_biosample_links:
+  input:
+    argos_biosample_input
+  output:
+    "output/argos_table.tsv"
+  run:
+    harmonized = {}
+    for filename in input:
+      id_ = filename.split('/')[3]
+      db = filename.split('/')[4]
+      link_query = read_json(filename)
+      link_list = extract_json_link_ids(link_query)
+      link_ids = ', '.join(link_list)
+      if db == 'nucleotide':
+        harmonized[id_] = {'nucleotide': link_ids}
+      else:
+        harmonized[id_]['sra'] = link_ids
+    tsv_file = open(output[0], 'w')
+    fieldnames = ['biosample', 'nucleotide', 'sra']
+    writer = csv.DictWriter(tsv_file, fieldnames=fieldnames, delimiter='\t')
+    writer.writeheader()
+    for key, value in harmonized.items():
+      row = value
+      row['biosample'] = key
+      writer.writerow(row)
+    tsv_file.close()

@@ -215,8 +215,19 @@ def scrape_assembly(assembly):
         "collected_by": "-",
     }
 
-def extract_link_ids(soup):
+def extract_xml_link_ids(soup):
     return [
       id_.text.strip()
       for id_ in soup.find('LinkSetDb').findAll('Id')
     ]
+
+
+def extract_json_link_ids(link_dict):
+    link_set = link_dict['eLinkResult']['LinkSet']
+    if not 'LinkSetDb' in link_set:
+        return []
+    links = link_set['LinkSetDb']['Link']
+    if type(links) == list:
+        link_list = [v['Id'] for v in links]
+        return link_list
+    return [links['Id']]
