@@ -519,13 +519,6 @@ rule sra_biosample_table:
       sra_accession=read_ids('input/accessions.txt')
     )
 
-rule sra_nucleotide_gisaid_intersection:
-  input:
-    expand(
-      "output/sra/{sra_accession}/query.json",
-      sra_accession=read_ids('output/sra-accessions-intersecting-with-gisaid.txt')
-    )
-
 def argos_biosample_input(wildcards):
   biosample_ids = read_ids("./input/PRJNA231221_biosample_ids.txt")
   nucleotide = [
