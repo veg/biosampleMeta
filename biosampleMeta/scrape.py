@@ -119,6 +119,8 @@ def scrape_sra_query(sra_query, sra_accession=None):
     'bioproject': sra_query['STUDY']['IDENTIFIERS']['EXTERNAL_ID']['#text'],
     'biosample': pluck_biosample_from_sra(sra_query),
     'sample_name':  deep_safe_fetch(run_, ['Pool', 'Member' ,'@sample_name']),
+    'organism': sra_query['Pool']['Member']['@organism'],
+    'tax_id': sra_query['SAMPLE']['SAMPLE_NAME']['TAXON_ID'],
     'collected_by': deep_safe_fetch(sra_query, ['SUBMISSION', '@center_name'])
   }
 

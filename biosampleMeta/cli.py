@@ -10,8 +10,8 @@ def efetch_cli():
     Entrez.email = args.email.replace('__at__', '@')
     with open(args.accession) as accession_file:
         accessions = [a.strip() for a in accession_file.readlines()]
-    sleep(1)
     for accession in accessions:
+        sleep(1)
         output_json = 'output/%s.json' % accession
         efetch_serialize(args.db, accession, 'output/temp.xml', output_json)
 
