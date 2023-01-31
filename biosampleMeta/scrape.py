@@ -109,25 +109,23 @@ def fetch_instrument_from_sra(sra_query):
   return instrument
 
 
-def scrape_sra_query(sra_query, sra_accession):
+def scrape_sra_query(sra_query, sra_accession=None):
   sra_query = sra_query['EXPERIMENT_PACKAGE_SET']['EXPERIMENT_PACKAGE']
   run_ = sra_query['RUN_SET']['RUN']
   if type(run_) == list:
     run_ = [r for r in run_ if r['@accession'] == sra_accession][0]
   return {
     'instrument': fetch_instrument_from_sra(sra_query),
-    'bioproject': sra_query['STUDY']['@alias'],
+    'bioproject': sra_query['STUDY']['IDENTIFIERS']['EXTERNAL_ID']['#text'],
+    'biosample': pluck_biosample_from_sra(sra_query),
     'sample_name':  deep_safe_fetch(run_, ['Pool', 'Member' ,'@sample_name']),
     'collected_by': deep_safe_fetch(sra_query, ['SUBMISSION', '@center_name'])
   }
 
 
-def pluck_biosample_from_sra(input_sra, output_text):
-    sra = read_json(input_sra)
-    experiment = sra["EXPERIMENT_PACKAGE_SET"]["EXPERIMENT_PACKAGE"]["EXPERIMENT"]
-    identifiers = experiment["DESIGN"]["SAMPLE_DESCRIPTOR"]["IDENTIFIERS"]
-    id_ = identifiers["EXTERNAL_ID"]["#text"]
-    write_ids([id_], output_text)
+def pluck_biosample_from_sra(input_sra):
+    id_ = input_sra["SAMPLE"]["IDENTIFIERS"]["EXTERNAL_ID"]["#text"]
+    return id_
 
 
 def get_key_from_attribute(attribute):

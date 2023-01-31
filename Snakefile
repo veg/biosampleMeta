@@ -504,6 +504,16 @@ rule sra_query_json:
   run:
     xml2json(input[0], output[0])
 
+rule sra_argos_scrape:
+  input:
+    rules.sra_query_json.output[0]
+  output:
+    "output/sra/{sra_accession}/scrape.json"
+  run:
+    sra = read_json(input[0])
+    scrape = scrape_sra_query(sra)
+    write_json(scrape, output[0])
+
 rule sra_pluck_biosample_id:
   input:
     rules.sra_query_json.output[0]
