@@ -4,3 +4,6 @@ output
 db
 __pycache__
 input/gisaid-*
+*.egg-info
+dist
+build

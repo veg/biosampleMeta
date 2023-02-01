@@ -1,4 +1,6 @@
-from entrez import efetch
+import argparse
+
+from biosampleMeta.scrape import efetch
 
 
 def efetch_cli():
@@ -14,5 +16,6 @@ def efetch_cli():
         sleep(1)
         output_json = 'output/%s.json' % accession
         efetch_serialize(args.db, accession, 'output/temp.xml', output_json)
+
 
 
