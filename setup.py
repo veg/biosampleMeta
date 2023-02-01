@@ -21,7 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'efetch = biosampleMeta.cli.efetch:efetch_cli',
-            'sra_scrape = biosampleMeta.cli.efetch:efetch_cli'
+            'sra_scrape = biosampleMeta.cli.argos_sra:argos_sra_cli'
         ]
     },
     classifiers=[
