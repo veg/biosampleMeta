@@ -567,3 +567,31 @@ rule argos_biosample_links:
       row['biosample'] = key
       writer.writerow(row)
     tsv_file.close()
+
+rule biosample_scrape:
+  input:
+    "output/db/biosample/{bs_id}/fetch.json"
+  output:
+    "output/db/biosample/{bs_id}/argos.json"
+  run:
+    bs = read_json(input[0])
+    argos = scrape_biosample(bs)
+    write_json(argos, output[0])
+
+rule augment_argos_table:
+  input:
+    rules.argos_biosample_links.output[0]
+  output:
+    "output/full_argos_table.tsv"
+  run:
+    input_tsv_file = open(input[0])
+    reader = csv.DictReader(input_tsv_file, delimiter='\t')
+    output_tsv_file = open(output[0], 'w')
+    fieldnames = ['biosample', 'nucleotide', 'sra', 'organism_name']
+    writer = csv.DictWriter(output_tsv_file, fieldnames=fieldnames, delimiter='\t')
+    writer.writeheader()
+    for row in reader:
+      bs_id = row['biosample']
+      argos_bs = read_json('output/db/biosample/%s/argos.json' % row['biosample'])
+      row.update({'organism_name': argos_bs['organism_name']})
+      writer.writerow(row)

@@ -6,7 +6,7 @@ import xmltodict
 
 
 def efetch(db, accession):
-    handle = Entrez.efetch(db=db, id=accession)
+    handle = Entrez.efetch(db=db, id=accession, rettype="xml")
     raw_xml = handle.read()
     handle.close()
     soup = BeautifulSoup(raw_xml, "xml")
