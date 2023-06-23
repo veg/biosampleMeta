@@ -328,6 +328,17 @@ rule bioproject_db_otherdb_links_text:
     ids = extract_xml_link_ids(soup)
     write_ids(ids, output[0])
 
+rule db_links_text:
+  input:
+    rules.db_link.output.json
+  output:
+    'output/db/{database}/{id_}/{database_from}/link.txt'
+  shell:
+    """
+      cat {input} | jq ".eLinkResult.LinkSet.LinkSetDb[0].Link[].Id" > {output}
+      gsed -i 's/"//g' {output}
+    """
+
 #rule bioproject_db_otherdb_link_query:
 #  output:
 #    "output/bioproject/{bioproject_id}/{db}/{db_id}/{otherdb}/{otherdb_id}/query.xml"
